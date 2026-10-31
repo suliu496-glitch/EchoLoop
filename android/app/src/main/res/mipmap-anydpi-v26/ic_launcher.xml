@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（Android 8.0 / API 26 起生效，本项目 minSdk 就是 26，所以这是实际使用的那套）。
+
+  前景层 mipmap/ic_launcher_foreground 里只放图形，四周留白；
+  背景层用纯色 #2563EB，与 App 主题的 accentDeep 一致。
+  启动器会自己决定裁成圆形、圆角方形还是方形，所以图形必须留在中心安全区内，
+  具体尺寸约束见 tool/gen_icon.py 的说明。
+
+  monochrome 层供 Android 13+ 的主题图标（Material You 取色）使用，
+  低版本系统会忽略这个标签。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>

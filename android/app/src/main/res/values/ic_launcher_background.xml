@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标背景层的颜色，由 mipmap-anydpi-v26/ic_launcher.xml 引用。
+  取值与 App 主题的 accentDeep（lib/core/theme/app_theme.dart）一致，
+  改图标配色时这里要跟着改。
+-->
+<resources>
+    <color name="ic_launcher_background">#2563EB</color>
+</resources>

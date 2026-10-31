@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  圆形图标变体。Android 7.1 及以下会读这个文件（配合 AndroidManifest 的 roundIcon），
+  这些系统不支持自适应图标，需要显式指定圆形版本。
+  本项目 minSdk 是 26，实际会走到 ic_launcher.xml，这份放在这里是为了兼容
+  部分启动器会主动查询 roundIcon 的行为。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>
