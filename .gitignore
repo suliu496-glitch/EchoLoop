@@ -41,6 +41,7 @@ migrate_working_dir/
 *.keystore
 /android/.gradle/
 /android/.kotlin/
+/android/build/
 /third_party/
 /docs/07-AI字幕识别方案.md
 /docs/08-自动断句精听方案.md
