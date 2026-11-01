@@ -3,9 +3,9 @@ import 'native_channel.dart';
 
 /// [PlayableSourceResolver] 的生产实现：交给 Android 原生层解析。
 ///
-/// 加了进程内缓存的原因：拖动进度条、倍速切换都会频繁走这条路径，
-/// 每次都过通道会白白付出通道开销；而原生侧对同一个 URI 也只维护一份文件描述符，
-/// 缓存与原生状态是一一对应的，release 时会同步清掉。
+/// content URI 交给 media_kit 直接处理：它使用 mpv 的 fd:// 协议，
+/// 避免在某些 Android 设备上无法重新打开 /proc/self/fd 路径。
+/// 非 content URI 仍通过原生桥解析并缓存。
 class NativePlayableSourceResolver implements PlayableSourceResolver {
   NativePlayableSourceResolver(this._channel);
 
@@ -14,6 +14,7 @@ class NativePlayableSourceResolver implements PlayableSourceResolver {
 
   @override
   Future<String> resolve(String uri) async {
+    if (_isContentUri(uri)) return uri;
     final cached = _cache[uri];
     if (cached != null && cached.isNotEmpty) return cached;
     final path = await _channel.resolvePlayablePath(uri);
@@ -23,6 +24,7 @@ class NativePlayableSourceResolver implements PlayableSourceResolver {
 
   @override
   Future<void> release(String uri) async {
+    if (_isContentUri(uri)) return;
     _cache.remove(uri);
     await _channel.releasePlayablePath(uri);
   }
@@ -32,4 +34,6 @@ class NativePlayableSourceResolver implements PlayableSourceResolver {
     _cache.clear();
     await _channel.releaseAllPlayablePaths();
   }
+
+  bool _isContentUri(String uri) => Uri.tryParse(uri)?.scheme == 'content';
 }
