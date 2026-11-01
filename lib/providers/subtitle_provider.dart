@@ -247,7 +247,7 @@ class SubtitleNotifier extends StateNotifier<SubtitleState> {
     }
   }
 
-  Future<void> deleteLine(int lineId) async {
+  Future<bool> deleteLine(int lineId) async {
     final mediaId = state.mediaId;
     int? trackId;
     for (final line in state.lines) {
@@ -256,12 +256,14 @@ class SubtitleNotifier extends StateNotifier<SubtitleState> {
         break;
       }
     }
-    if (trackId == null) return;
+    if (trackId == null) return false;
     try {
       await _service.deleteLine(trackId, lineId);
       if (mediaId != null) await _reload(mediaId);
+      return true;
     } catch (error) {
       state = state.copyWith(error: humanizeError(error));
+      return false;
     }
   }
 

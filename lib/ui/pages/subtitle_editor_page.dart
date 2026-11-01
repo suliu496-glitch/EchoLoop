@@ -10,6 +10,7 @@ import '../../providers/subtitle_provider.dart';
 import '../adaptive/screen_adaptation.dart';
 import '../widgets/glass.dart';
 import '../widgets/media_card.dart' show glassInputDecoration;
+import '../widgets/swipe_sentence_tile.dart';
 
 /// 字幕编辑页（需求 §3.2-5）。
 ///
@@ -68,8 +69,9 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
             tooltip: '导入字幕文件',
             icon: const Icon(Icons.file_open_outlined),
             onPressed: () async {
-              final message =
-                  await ref.read(subtitleProvider.notifier).importFromPicker();
+              final message = await ref
+                  .read(subtitleProvider.notifier)
+                  .importFromPicker();
               if (!mounted || message == null) return;
               _toast(message);
               _selectDefaultTrack();
@@ -89,12 +91,18 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
                 return;
               }
               if (value == 'clear' && trackId != null) {
+                if (!await _confirmTrackRemoval('清空当前轨的所有句子？') || !mounted) {
+                  return;
+                }
                 await ref.read(subtitleProvider.notifier).clearTrack(trackId);
                 if (!mounted) return;
                 _toast('已清空这条字幕轨');
                 return;
               }
               if (value == 'delete' && trackId != null) {
+                if (!await _confirmTrackRemoval('删除当前字幕轨及其所有句子？') || !mounted) {
+                  return;
+                }
                 await ref.read(subtitleProvider.notifier).deleteTrack(trackId);
                 if (!mounted) return;
                 _toast('已删除这条字幕轨');
@@ -124,59 +132,62 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
         child: ConstrainedContent(
           child: Column(
             children: [
-            if (tracks.isEmpty)
-              Expanded(
-                child: Center(
-                  child: Text(
-                    '还没有字幕轨，先导入字幕文件或新建一条手写轨',
-                    style: TextStyle(fontSize: 13, color: palette.textSecondary),
-                  ),
-                ),
-              )
-            else ...[
-              _buildTrackSelector(tracks, trackId),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppDimens.pagePadding,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '共 ${lines.length} 句 · 点击试听，右侧图标编辑',
-                    style: TextStyle(fontSize: 11.5, color: palette.textTertiary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Expanded(
-                child: lines.isEmpty
-                    ? Center(
-                        child: Text(
-                          '这条轨还没有字幕句，点右下角插入一句',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: palette.textSecondary,
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppDimens.pagePadding,
-                          4,
-                          AppDimens.pagePadding,
-                          120,
-                        ),
-                        itemCount: lines.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) => _buildLineTile(
-                          lines[index],
-                          index + 1,
-                          trackId!,
-                        ),
+              if (tracks.isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      '还没有字幕轨，先导入字幕文件或新建一条手写轨',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: palette.textSecondary,
                       ),
-              ),
+                    ),
+                  ),
+                )
+              else ...[
+                _buildTrackSelector(tracks, trackId),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppDimens.pagePadding,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '共 ${lines.length} 句 · 点击试听，右侧图标编辑',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: palette.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Expanded(
+                  child: lines.isEmpty
+                      ? Center(
+                          child: Text(
+                            '这条轨还没有字幕句，点右下角插入一句',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: palette.textSecondary,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppDimens.pagePadding,
+                            4,
+                            AppDimens.pagePadding,
+                            120,
+                          ),
+                          itemCount: lines.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) =>
+                              _buildLineTile(lines[index], index + 1, trackId!),
+                        ),
+                ),
+              ],
             ],
-          ],
           ),
         ),
       ),
@@ -233,10 +244,7 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
                 Text(
                   '${DurationUtils.formatMilliseconds(line.startMs)} → '
                   '${DurationUtils.formatMilliseconds(line.endMs)}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: palette.textTertiary,
-                  ),
+                  style: TextStyle(fontSize: 11, color: palette.textTertiary),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -271,10 +279,12 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
     await ref.read(playbackProvider.notifier).pause();
 
     final textController = TextEditingController(text: line.text);
-    final startController =
-        TextEditingController(text: DurationUtils.formatMilliseconds(line.startMs));
-    final endController =
-        TextEditingController(text: DurationUtils.formatMilliseconds(line.endMs));
+    final startController = TextEditingController(
+      text: DurationUtils.formatMilliseconds(line.startMs),
+    );
+    final endController = TextEditingController(
+      text: DurationUtils.formatMilliseconds(line.endMs),
+    );
     String? errorText;
 
     if (!mounted) return;
@@ -299,7 +309,9 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
               setSheetState(() => errorText = '结束时间必须晚于开始时间');
               return;
             }
-            final ok = await ref.read(subtitleProvider.notifier).updateLine(
+            final ok = await ref
+                .read(subtitleProvider.notifier)
+                .updateLine(
                   line.copyWith(
                     startMs: start,
                     endMs: end,
@@ -309,7 +321,12 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
                 );
             if (!sheetContext.mounted) return;
             if (ok) {
-              Navigator.of(sheetContext).pop();
+              if (ref.read(playbackProvider).mediaId == line.mediaId) {
+                await ref
+                    .read(playbackProvider.notifier)
+                    .sentenceChanged(startMs: line.startMs, endMs: line.endMs);
+              }
+              if (sheetContext.mounted) Navigator.of(sheetContext).pop();
             } else {
               setSheetState(
                 () => errorText = ref.read(subtitleProvider).error ?? '保存失败',
@@ -366,7 +383,10 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
                     children: [
                       Text(
                         '微调',
-                        style: TextStyle(fontSize: 11.5, color: palette.textSecondary),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: palette.textSecondary,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       _MiniButton(
@@ -402,13 +422,34 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
                     children: [
                       TextButton.icon(
                         onPressed: () async {
-                          await ref
+                          final confirmed = await confirmDeleteSentence(
+                            sheetContext,
+                            line.lineIndex + 1,
+                          );
+                          if (!confirmed || !sheetContext.mounted) return;
+                          final deleted = await ref
                               .read(subtitleProvider.notifier)
                               .deleteLine(line.id!);
                           if (!sheetContext.mounted) return;
-                          Navigator.of(sheetContext).pop();
+                          if (deleted) {
+                            if (ref.read(playbackProvider).mediaId ==
+                                line.mediaId) {
+                              await ref
+                                  .read(playbackProvider.notifier)
+                                  .sentenceChanged(
+                                    startMs: line.startMs,
+                                    endMs: line.endMs,
+                                  );
+                            }
+                            if (sheetContext.mounted) {
+                              Navigator.of(sheetContext).pop();
+                            }
+                          }
                         },
-                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                        ),
                         label: const Text('删除'),
                       ),
                       const Spacer(),
@@ -439,6 +480,26 @@ class _SubtitleEditorPageState extends ConsumerState<SubtitleEditorPage> {
     final next = current + (deltaSeconds * 1000).round();
     controller.text = DurationUtils.formatMilliseconds(next < 0 ? 0 : next);
   }
+
+  Future<bool> _confirmTrackRemoval(String message) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('确认删除'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 
   void _toast(String message) {
     if (!mounted) return;

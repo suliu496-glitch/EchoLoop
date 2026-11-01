@@ -11,6 +11,8 @@ import '../../domain/subtitles/subtitle_cue.dart';
 import '../../providers/playback_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/subtitle_provider.dart';
+import 'sentence_edit_dialog.dart';
+import 'swipe_sentence_tile.dart';
 
 /// 字幕列表（需求 §3.2-7）。
 ///
@@ -313,7 +315,7 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
                     playback.loopRegion != null &&
                     playback.loopRegion!.startMs == line.startMs &&
                     playback.loopRegion!.endMs == line.endMs;
-                return _SubtitleTile(
+                final tile = _SubtitleTile(
                   line: line,
                   displayIndex: index + 1,
                   focusMode: focusMode,
@@ -357,6 +359,14 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
                     }
                   },
                 );
+                if (!focusMode || line.id == null) return tile;
+                return SwipeSentenceTile(
+                  key: ValueKey('sentence-${line.id}'),
+                  sentenceNumber: index + 1,
+                  onEdit: () => _editSentence(line),
+                  onDelete: () => _deleteSentence(line),
+                  child: tile,
+                );
               },
             ),
           ),
@@ -379,6 +389,48 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
     endMs: line.endMs,
     text: line.text,
   );
+
+  Future<void> _editSentence(SubtitleLine line) async {
+    final edited = await showDialog<SubtitleLine>(
+      context: context,
+      builder: (_) => SentenceEditDialog(
+        line: line,
+        durationMs: ref.read(playbackProvider).durationMs,
+      ),
+    );
+    if (!mounted || edited == null) return;
+    if (ref.read(subtitleProvider).mediaId != line.mediaId) return;
+    final ok = await ref.read(subtitleProvider.notifier).updateLine(edited);
+    if (!mounted) return;
+    if (ok && ref.read(playbackProvider).mediaId == line.mediaId) {
+      await ref
+          .read(playbackProvider.notifier)
+          .sentenceChanged(startMs: line.startMs, endMs: line.endMs);
+    } else if (!ok) {
+      _showError();
+    }
+  }
+
+  Future<void> _deleteSentence(SubtitleLine line) async {
+    if (line.id == null || ref.read(subtitleProvider).mediaId != line.mediaId) {
+      return;
+    }
+    final ok = await ref.read(subtitleProvider.notifier).deleteLine(line.id!);
+    if (!mounted) return;
+    if (ok && ref.read(playbackProvider).mediaId == line.mediaId) {
+      await ref
+          .read(playbackProvider.notifier)
+          .sentenceChanged(startMs: line.startMs, endMs: line.endMs);
+    } else if (!ok) {
+      _showError();
+    }
+  }
+
+  void _showError() {
+    final error = ref.read(subtitleProvider).error ?? '操作失败';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    ref.read(subtitleProvider.notifier).consumeError();
+  }
 }
 
 class _SubtitleTile extends StatelessWidget {

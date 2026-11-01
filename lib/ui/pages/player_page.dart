@@ -66,6 +66,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   bool _loading = true;
   bool _fullscreen = false;
   bool _savingSentence = false;
+  bool _precisionExpanded = true;
+  bool _changingPrecision = false;
 
   /// 上一次应用过的方向策略，避免每帧都去调 SystemChrome
   List<DeviceOrientation>? _appliedOrientations;
@@ -214,7 +216,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
     // 横屏手机在「宽高比」意义上也属于宽屏，但纵向只有三百多 dp，
     // 和平板横屏完全不是一回事，必须先拦下来。
     final Widget body;
-    if (ScreenAdaptation.isPhoneLandscape(context)) {
+    if (!_precisionExpanded) {
+      body = _buildStage(
+        playback,
+        settings,
+        currentCue,
+        maxVideoHeight: MediaQuery.sizeOf(context).height * .68,
+      );
+    } else if (ScreenAdaptation.isPhoneLandscape(context)) {
       body = _buildPhoneLandscapeLayout(playback, settings, currentCue);
     } else if (ScreenAdaptation.isWide(context)) {
       body = _buildWideLayout(playback, settings, currentCue);
@@ -334,7 +343,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
         final isVideo = _media?.isVideo ?? playback.isVideo;
         // 视频最多占屏幕高度的 46%，把空间留给控制与字幕
         final videoLimit = math.min(
-          screenHeight * 0.46,
+          screenHeight * (_precisionExpanded ? 0.46 : 0.68),
           maxVideoHeight ?? double.infinity,
         );
         final videoHeight = isVideo
@@ -577,6 +586,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
         ],
       ),
       actions: [
+        TextButton.icon(
+          key: const ValueKey('toggle-precision'),
+          onPressed: _changingPrecision ? null : _togglePrecision,
+          icon: Icon(
+            _precisionExpanded
+                ? Icons.chevron_right_rounded
+                : Icons.headphones_rounded,
+          ),
+          label: Text(_precisionExpanded ? '折叠精听' : '展开精听'),
+        ),
         PopupMenuButton<String>(
           icon: const Icon(Icons.subtitles_rounded),
           tooltip: '字幕',
@@ -1005,10 +1024,32 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           .addSelectedSentence(region.startMs, region.endMs);
       if (!mounted) return;
       final error = ref.read(subtitleProvider).error;
+      if (message != null && !_precisionExpanded) {
+        setState(() => _precisionExpanded = true);
+      }
       _toast(message ?? error ?? '保存断句失败');
       if (error != null) ref.read(subtitleProvider.notifier).consumeError();
     } finally {
       if (mounted) setState(() => _savingSentence = false);
+    }
+  }
+
+  Future<void> _togglePrecision() async {
+    if (_changingPrecision) return;
+    if (!_precisionExpanded) {
+      setState(() => _precisionExpanded = true);
+      return;
+    }
+    setState(() {
+      _precisionExpanded = false;
+      _changingPrecision = true;
+    });
+    try {
+      await ref.read(playbackProvider.notifier).exitPrecisionAndRestart();
+    } catch (error) {
+      if (mounted) _toast(humanizeError(error));
+    } finally {
+      if (mounted) setState(() => _changingPrecision = false);
     }
   }
 

@@ -277,6 +277,7 @@ class SubtitleService {
       throw const SubtitleException('结束时间必须晚于开始时间', code: 'invalid_time_range');
     }
     await _dao.updateLine(line.copyWith(source: SubtitleSource.manual));
+    await _dao.reindexTrack(line.trackId);
   }
 
   Future<void> deleteLine(int trackId, int lineId) async {
