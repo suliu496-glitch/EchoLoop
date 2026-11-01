@@ -132,23 +132,6 @@ class LoopControlPanel extends ConsumerWidget {
               color: palette.textTertiary,
             ),
           ),
-          if (region != null) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                final message = await ref
-                    .read(subtitleProvider.notifier)
-                    .addSelectedSentence(region.startMs, region.endMs);
-                final error = ref.read(subtitleProvider).error;
-                messenger.showSnackBar(
-                  SnackBar(content: Text(message ?? error ?? '保存失败')),
-                );
-              },
-              icon: const Icon(Icons.playlist_add_rounded),
-              label: const Text('将选区保存为一句'),
-            ),
-          ],
 
           // ---------------- 2. 端点精调 ----------------
           if (region != null) ...[

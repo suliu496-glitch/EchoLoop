@@ -140,7 +140,7 @@ class SettingsPage extends ConsumerWidget {
                   ),
                   _SwitchRow(
                     title: '显示字幕列表',
-                    subtitle: '关闭后播放页只留视频与时间轴',
+                    subtitle: '关闭字幕显示后，手动断句列表仍可用于精听',
                     value: settings.subtitleVisible,
                     onChanged: notifier.setSubtitleVisible,
                   ),

@@ -196,64 +196,77 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
           ),
         ),
         if (focusMode)
-          Wrap(
-            spacing: 4,
-            children: [
-              ChoiceChip(
-                label: const Text('顺序播放'),
-                selected:
-                    settings.autoAdvanceSentences &&
-                    !settings.repeatSentenceList,
-                onSelected: (_) async {
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setRepeatSentenceList(false);
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setAutoAdvanceSentences(true);
-                  await ref.read(settingsProvider.notifier).setLoopCount(1);
-                  await restartSelected();
-                },
-              ),
-              ChoiceChip(
-                label: const Text('列表循环'),
-                selected:
-                    settings.autoAdvanceSentences &&
-                    settings.repeatSentenceList,
-                onSelected: (_) async {
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setRepeatSentenceList(true);
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setAutoAdvanceSentences(true);
-                  await ref.read(settingsProvider.notifier).setLoopCount(1);
-                  await restartSelected();
-                },
-              ),
-              ChoiceChip(
-                label: const Text('无限循环'),
-                selected:
-                    !settings.autoAdvanceSentences &&
-                    settings.loopMode != LoopMode.count,
-                onSelected: (_) async {
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setAutoAdvanceSentences(false);
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setLoopMode(LoopMode.infinite);
-                  await restartSelected();
-                },
-              ),
-              for (final count in [1, 2, 3, 4])
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
                 ChoiceChip(
-                  label: Text('$count 遍'),
+                  label: const Text('顺序播放'),
                   selected:
-                      (settings.autoAdvanceSentences ||
-                          settings.loopMode == LoopMode.count) &&
-                      settings.loopCount == count,
+                      settings.autoAdvanceSentences &&
+                      !settings.repeatSentenceList,
                   onSelected: (_) async {
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setRepeatSentenceList(false);
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setAutoAdvanceSentences(true);
+                    await ref.read(settingsProvider.notifier).setLoopCount(1);
+                    await restartSelected();
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('列表循环'),
+                  selected:
+                      settings.autoAdvanceSentences &&
+                      settings.repeatSentenceList,
+                  onSelected: (_) async {
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setRepeatSentenceList(true);
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setAutoAdvanceSentences(true);
+                    await ref.read(settingsProvider.notifier).setLoopCount(1);
+                    await restartSelected();
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('无限循环'),
+                  selected:
+                      !settings.autoAdvanceSentences &&
+                      settings.loopMode != LoopMode.count,
+                  onSelected: (_) async {
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setAutoAdvanceSentences(false);
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setLoopMode(LoopMode.infinite);
+                    await restartSelected();
+                  },
+                ),
+                for (final count in [1, 2, 3, 4])
+                  ChoiceChip(
+                    label: Text('$count 遍'),
+                    selected:
+                        (settings.autoAdvanceSentences ||
+                            settings.loopMode == LoopMode.count) &&
+                        settings.loopCount == count,
+                    onSelected: (_) async {
+                      await ref
+                          .read(settingsProvider.notifier)
+                          .setLoopCount(count);
+                      await ref
+                          .read(settingsProvider.notifier)
+                          .setLoopMode(LoopMode.count);
+                      await restartSelected();
+                    },
+                  ),
+                PopupMenuButton<int>(
+                  tooltip: '更多循环次数',
+                  onSelected: (count) async {
                     await ref
                         .read(settingsProvider.notifier)
                         .setLoopCount(count);
@@ -262,31 +275,22 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
                         .setLoopMode(LoopMode.count);
                     await restartSelected();
                   },
-                ),
-              PopupMenuButton<int>(
-                tooltip: '更多循环次数',
-                onSelected: (count) async {
-                  await ref.read(settingsProvider.notifier).setLoopCount(count);
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setLoopMode(LoopMode.count);
-                  await restartSelected();
-                },
-                itemBuilder: (_) => [
-                  for (var count = 5; count <= 20; count++)
-                    PopupMenuItem(value: count, child: Text('$count 遍')),
-                ],
-                child: Chip(
-                  label: Text(
-                    (settings.autoAdvanceSentences ||
-                                settings.loopMode == LoopMode.count) &&
-                            settings.loopCount > 4
-                        ? '${settings.loopCount} 遍'
-                        : '更多次数',
+                  itemBuilder: (_) => [
+                    for (var count = 5; count <= 20; count++)
+                      PopupMenuItem(value: count, child: Text('$count 遍')),
+                  ],
+                  child: Chip(
+                    label: Text(
+                      (settings.autoAdvanceSentences ||
+                                  settings.loopMode == LoopMode.count) &&
+                              settings.loopCount > 4
+                          ? '${settings.loopCount} 遍'
+                          : '更多次数',
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         Expanded(
           child: NotificationListener<ScrollNotification>(
@@ -534,43 +538,45 @@ class _EmptySubtitle extends StatelessWidget {
     }
 
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.subtitles_off_rounded,
-            size: 34,
-            color: palette.textTertiary,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '还没有字幕',
-            style: TextStyle(fontSize: 13.5, color: palette.textSecondary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '导入 srt / ass / vtt，或从当前播放位置手动加一句',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11.5, color: palette.textTertiary),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextButton.icon(
-                onPressed: onImport,
-                icon: const Icon(Icons.file_open_outlined, size: 18),
-                label: const Text('导入字幕'),
-              ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: onAdd,
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('添加字幕'),
-              ),
-            ],
-          ),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.subtitles_off_rounded,
+              size: 34,
+              color: palette.textTertiary,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '还没有字幕',
+              style: TextStyle(fontSize: 13.5, color: palette.textSecondary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '框选时间轴后，点击播放器上的“添加断句”',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11.5, color: palette.textTertiary),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  onPressed: onImport,
+                  icon: const Icon(Icons.file_open_outlined, size: 18),
+                  label: const Text('导入字幕'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('添加字幕'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

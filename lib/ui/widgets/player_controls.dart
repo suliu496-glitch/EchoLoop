@@ -231,25 +231,34 @@ class _LoopButtonState extends State<LoopButton>
               color: active ? palette.accent : palette.textSecondary,
             ),
             const SizedBox(width: 6),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  finished ? '再来一组' : (snapshot.loopButtonLabel),
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                    color: active ? palette.accent : palette.textPrimary,
-                  ),
-                ),
-                if (active && snapshot.loopRegion != null)
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Text(
-                    '${_sec(snapshot.loopRegion!.startMs)} → '
-                    '${_sec(snapshot.loopRegion!.endMs)}',
-                    style: TextStyle(fontSize: 10.5, color: palette.textSecondary),
+                    finished ? '再来一组' : (snapshot.loopButtonLabel),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? palette.accent : palette.textPrimary,
+                    ),
                   ),
-              ],
+                  if (active && snapshot.loopRegion != null)
+                    Text(
+                      '${_sec(snapshot.loopRegion!.startMs)} → '
+                      '${_sec(snapshot.loopRegion!.endMs)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: palette.textSecondary,
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(width: 2),
             GestureDetector(

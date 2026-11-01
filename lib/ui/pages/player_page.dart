@@ -10,6 +10,7 @@ import '../../core/errors/app_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_settings.dart';
 import '../../data/models/media_item.dart';
+import '../../data/models/subtitle_models.dart';
 import '../../domain/playback/playback_state.dart';
 import '../../domain/subtitles/subtitle_cue.dart';
 import '../../domain/subtitles/subtitle_snapper.dart';
@@ -20,8 +21,10 @@ import '../../providers/playback_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/subtitle_provider.dart';
 import '../adaptive/screen_adaptation.dart';
+import '../widgets/fullscreen_playback_surface.dart';
 import '../widgets/glass.dart';
 import '../widgets/loop_panel.dart';
+import '../widgets/media_playback_controls.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/subtitle_list_view.dart';
 import '../widgets/timeline_bar.dart';
@@ -61,6 +64,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   String? _error;
   bool _loading = true;
   bool _fullscreen = false;
+  bool _savingSentence = false;
 
   /// 上一次应用过的方向策略，避免每帧都去调 SystemChrome
   List<DeviceOrientation>? _appliedOrientations;
@@ -241,27 +245,38 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
     AppSettings settings,
     SubtitleCue? currentCue,
   ) {
-    return Column(
-      children: [
-        _buildStage(playback, settings, currentCue),
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppDimens.pagePadding,
-          ),
-          child: Divider(color: context.palette.divider, height: 1),
-        ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppDimens.pagePadding,
-              8,
-              AppDimens.pagePadding,
-              0,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 保留足够空间给句子列表，短屏时压缩画面而不是把操作按钮挤出屏幕。
+        final videoCap = math.max(72.0, constraints.maxHeight - 410);
+        return Column(
+          children: [
+            _buildStage(
+              playback,
+              settings,
+              currentCue,
+              maxVideoHeight: videoCap,
             ),
-            child: _buildSubtitleArea(settings),
-          ),
-        ),
-      ],
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppDimens.pagePadding,
+              ),
+              child: Divider(color: context.palette.divider, height: 1),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppDimens.pagePadding,
+                  8,
+                  AppDimens.pagePadding,
+                  0,
+                ),
+                child: _buildSubtitleArea(settings),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -309,17 +324,21 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   Widget _buildStage(
     PlaybackSnapshot playback,
     AppSettings settings,
-    SubtitleCue? currentCue,
-  ) {
+    SubtitleCue? currentCue, {
+    double? maxVideoHeight,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final screenHeight = MediaQuery.sizeOf(context).height;
         final isVideo = _media?.isVideo ?? playback.isVideo;
         // 视频最多占屏幕高度的 46%，把空间留给控制与字幕
-        final maxVideoHeight = screenHeight * 0.46;
+        final videoLimit = math.min(
+          screenHeight * 0.46,
+          maxVideoHeight ?? double.infinity,
+        );
         final videoHeight = isVideo
-            ? math.min(constraints.maxWidth * 9 / 16, maxVideoHeight)
-            : 132.0;
+            ? math.min(constraints.maxWidth * 9 / 16, videoLimit)
+            : math.min(132.0, videoLimit);
 
         return SingleChildScrollView(
           child: Column(
@@ -360,7 +379,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           width: double.infinity,
           child: _buildVideoArea(playback, isVideo),
         ),
-        if (currentCue != null && settings.subtitleVisible)
+        if (currentCue != null &&
+            currentCue.text.isNotEmpty &&
+            settings.subtitleVisible)
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
             child: Text(
@@ -384,6 +405,29 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   ///
   /// 竖屏时接在视频下面，横屏时整块搬到右栏，所以要和视频分开。
   Widget _buildTransportBlock(PlaybackSnapshot playback, AppSettings settings) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildTimeline(playback, settings),
+        const SizedBox(height: 6),
+        _buildTransportRow(playback),
+        _buildMediaPlaybackControls(playback),
+        const SizedBox(height: 8),
+        _buildActionRow(playback),
+        if (playback.status == PlaybackStatus.gapCounting &&
+            playback.gapRemaining != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: GapCountdownBanner(
+              seconds: playback.gapRemaining!,
+              total: playback.gapSeconds,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTimeline(PlaybackSnapshot playback, AppSettings settings) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -420,20 +464,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
                 ref.read(playbackProvider.notifier).setLoopRegion(start, end),
           ),
         ),
-        const SizedBox(height: 6),
-        _buildTransportRow(playback),
-        _buildMediaPlaybackControls(playback),
-        const SizedBox(height: 8),
-        _buildActionRow(playback),
-        if (playback.status == PlaybackStatus.gapCounting &&
-            playback.gapRemaining != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: GapCountdownBanner(
-              seconds: playback.gapRemaining!,
-              total: playback.gapSeconds,
-            ),
-          ),
       ],
     );
   }
@@ -463,7 +493,36 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           child: Padding(
             // 左右留白交给 _buildVideoArea 自己处理，这里只管外侧
             padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
-            child: _buildVideoArea(playback, isVideo, overlayText: overlay),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: _buildVideoArea(
+                          playback,
+                          isVideo,
+                          overlayText: overlay,
+                        ),
+                      ),
+                      if (playback.status == PlaybackStatus.gapCounting &&
+                          playback.gapRemaining != null)
+                        Positioned(
+                          left: 16,
+                          right: 16,
+                          bottom: 4,
+                          child: GapCountdownBanner(
+                            seconds: playback.gapRemaining!,
+                            total: playback.gapSeconds,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _buildTransportRow(playback),
+                _buildActionRow(playback),
+              ],
+            ),
           ),
         ),
         Container(width: 1, color: palette.divider),
@@ -473,7 +532,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
             padding: const EdgeInsets.fromLTRB(8, 0, AppDimens.pagePadding, 0),
             child: Column(
               children: [
-                _buildTransportBlock(playback, settings),
+                _buildTimeline(playback, settings),
+                _buildMediaPlaybackControls(playback),
                 const SizedBox(height: 4),
                 Expanded(child: _buildSubtitleArea(settings)),
               ],
@@ -716,55 +776,32 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
       MediaPlaybackMode.repeatOne => Icons.repeat_one_rounded,
       MediaPlaybackMode.repeatAll => Icons.repeat_rounded,
     };
-    final color = dark ? Colors.white : context.palette.textPrimary;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: '上一条',
-          color: color,
-          icon: const Icon(Icons.skip_previous_rounded),
-          onPressed: playback.hasMedia && notifier.queueIndex > 0
-              ? notifier.previousMedia
-              : null,
-        ),
-        if (dark)
-          IconButton(
-            tooltip: playback.isPlaying ? '暂停' : '播放',
-            color: color,
-            icon: Icon(
-              playback.isPlaying
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
-            ),
-            onPressed: playback.hasMedia ? notifier.togglePlay : null,
-          ),
-        TextButton.icon(
-          style: TextButton.styleFrom(foregroundColor: color),
-          onPressed: () {
-            ref.read(mediaPlaybackModeProvider.notifier).state = switch (mode) {
-              MediaPlaybackMode.sequential => MediaPlaybackMode.repeatOne,
-              MediaPlaybackMode.repeatOne => MediaPlaybackMode.repeatAll,
-              MediaPlaybackMode.repeatAll => MediaPlaybackMode.sequential,
-            };
-          },
-          icon: Icon(icon),
-          label: Text(label),
-        ),
-        IconButton(
-          tooltip: '下一条',
-          color: color,
-          icon: const Icon(Icons.skip_next_rounded),
-          onPressed:
-              playback.hasMedia &&
-                  notifier.queueIndex >= 0 &&
-                  (notifier.queueIndex < notifier.queue.length - 1 ||
-                      mode == MediaPlaybackMode.repeatAll)
-              ? notifier.nextMedia
-              : null,
-        ),
-      ],
+    return MediaPlaybackControls(
+      modeLabel: label,
+      modeIcon: icon,
+      dark: dark,
+      compact: !dark && ScreenAdaptation.isPhoneLandscape(context),
+      isPlaying: playback.isPlaying,
+      saving: _savingSentence,
+      onAddSentence: playback.hasMedia ? _saveSelectedSentence : null,
+      onTogglePlay: playback.hasMedia ? notifier.togglePlay : null,
+      onPrevious: playback.hasMedia && notifier.queueIndex > 0
+          ? notifier.previousMedia
+          : null,
+      onNext:
+          playback.hasMedia &&
+              notifier.queueIndex >= 0 &&
+              (notifier.queueIndex < notifier.queue.length - 1 ||
+                  mode == MediaPlaybackMode.repeatAll)
+          ? notifier.nextMedia
+          : null,
+      onChangeMode: () {
+        ref.read(mediaPlaybackModeProvider.notifier).state = switch (mode) {
+          MediaPlaybackMode.sequential => MediaPlaybackMode.repeatOne,
+          MediaPlaybackMode.repeatOne => MediaPlaybackMode.repeatAll,
+          MediaPlaybackMode.repeatAll => MediaPlaybackMode.sequential,
+        };
+      },
     );
   }
 
@@ -799,7 +836,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
                   }
                 },
                 onStop: () =>
-                    ref.read(playbackProvider.notifier).clearLoopRegion(),
+                    ref.read(playbackProvider.notifier).stopLoopKeepRegion(),
                 onOpenSettings: _openMoreSheet,
               ),
             ),
@@ -822,7 +859,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   }
 
   Widget _buildSubtitleArea(AppSettings settings) {
-    if (!settings.subtitleVisible) {
+    final hasManualSentences = ref
+        .watch(subtitleProvider)
+        .activeTracks
+        .any(
+          (track) =>
+              track.source == SubtitleSource.manual && track.name == '手动断句',
+        );
+    if (!settings.subtitleVisible && !hasManualSentences) {
       return Center(
         child: Text(
           '字幕显示已关闭，可在设置里重新打开',
@@ -840,59 +884,41 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   Widget _buildFullscreen(PlaybackSnapshot playback, SubtitleCue? currentCue) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _toggleFullscreen,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: playback.isVideo
-                  ? Video(
-                      controller: ref
-                          .watch(playbackEngineProvider)
-                          .videoController,
-                      controls: NoVideoControls,
-                      fit: BoxFit.contain,
-                      pauseUponEnteringBackgroundMode: false,
-                    )
-                  : const Center(
-                      child: Icon(
-                        Icons.graphic_eq_rounded,
-                        color: Colors.white54,
-                        size: 64,
-                      ),
-                    ),
-            ),
-            // 需求 §6：视频区域不加蒙层，字幕用描边与阴影保证可读
-            if (currentCue != null)
-              _buildOverlayCue(
+      body: FullscreenPlaybackSurface(
+        positionMs: playback.positionMs,
+        durationMs: playback.durationMs,
+        onSeek: (ms) => ref.read(playbackProvider.notifier).seekTo(ms),
+        onTogglePlay: () => ref.read(playbackProvider.notifier).togglePlay(),
+        onExit: _toggleFullscreen,
+        controls: _buildMediaPlaybackControls(playback, dark: true),
+        subtitle:
+            currentCue != null &&
+                currentCue.text.isNotEmpty &&
+                ref.watch(settingsProvider).subtitleVisible
+            ? _buildOverlayCue(
                 currentCue.text,
                 fontSize: 22,
                 bottom: 90,
                 horizontal: 24,
+              )
+            : null,
+        video: playback.isVideo
+            ? Video(
+                controller: ref.watch(playbackEngineProvider).videoController,
+                controls: NoVideoControls,
+                fit: BoxFit.contain,
+                pauseUponEnteringBackgroundMode: false,
+              )
+            : const Center(
+                child: Icon(
+                  Icons.graphic_eq_rounded,
+                  color: Colors.white54,
+                  size: 64,
+                ),
               ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 12,
-              child: Center(
-                child: _buildMediaPlaybackControls(playback, dark: true),
-              ),
-            ),
-            Positioned(
-              right: 16,
-              top: 16,
-              child: _VideoCornerButton(
-                icon: Icons.fullscreen_exit_rounded,
-                onTap: _toggleFullscreen,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
-
   // ------------------------------------------------------------------
   // 底部面板
   // ------------------------------------------------------------------
@@ -960,6 +986,33 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   // ------------------------------------------------------------------
   // 字幕操作
   // ------------------------------------------------------------------
+
+  Future<void> _saveSelectedSentence() async {
+    if (_savingSentence) return;
+    final playback = ref.read(playbackProvider);
+    final region = playback.loopRegion;
+    if (region == null) {
+      _toast('请先在时间轴上方拖动框选一段，再点击添加断句');
+      return;
+    }
+    if (playback.mediaId == null ||
+        ref.read(subtitleProvider).mediaId != playback.mediaId) {
+      _toast('媒体正在切换，请稍后再试');
+      return;
+    }
+    setState(() => _savingSentence = true);
+    try {
+      final message = await ref
+          .read(subtitleProvider.notifier)
+          .addSelectedSentence(region.startMs, region.endMs);
+      if (!mounted) return;
+      final error = ref.read(subtitleProvider).error;
+      _toast(message ?? error ?? '保存断句失败');
+      if (error != null) ref.read(subtitleProvider.notifier).consumeError();
+    } finally {
+      if (mounted) setState(() => _savingSentence = false);
+    }
+  }
 
   Future<void> _importSubtitle() async {
     final message = await ref

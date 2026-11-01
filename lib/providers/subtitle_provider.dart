@@ -105,6 +105,7 @@ class SubtitleNotifier extends StateNotifier<SubtitleState> {
     try {
       final tracks = await _service.tracksOf(mediaId);
       final lines = await _service.activeLinesOf(mediaId);
+      if (!mounted || state.mediaId != mediaId) return;
       state = state.copyWith(
         mediaId: mediaId,
         tracks: tracks,
@@ -114,6 +115,7 @@ class SubtitleNotifier extends StateNotifier<SubtitleState> {
         clearError: true,
       );
     } catch (error) {
+      if (!mounted || state.mediaId != mediaId) return;
       state = state.copyWith(loading: false, error: humanizeError(error));
     }
   }
