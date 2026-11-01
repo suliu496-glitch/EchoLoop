@@ -177,7 +177,7 @@ class SettingsPage extends ConsumerWidget {
                   _InfoRow(
                     icon: Icons.apps_rounded,
                     title: '应用',
-                    value: '${AppConstants.appName} 1.0.3',
+                    value: '${AppConstants.appName} 1.0.4',
                   ),
                   _InfoRow(
                     icon: Icons.shield_outlined,
