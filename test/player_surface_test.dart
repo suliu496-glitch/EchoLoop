@@ -1,10 +1,33 @@
 import 'package:echoloop/ui/widgets/fullscreen_playback_surface.dart';
 import 'package:echoloop/ui/widgets/compact_landscape_panel.dart';
 import 'package:echoloop/ui/widgets/media_playback_controls.dart';
+import 'package:echoloop/ui/widgets/playback_error_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('播放失败显示具体错误并允许重试', (tester) async {
+    var retries = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 260,
+            height: 110,
+            child: PlaybackErrorView(
+              message: '没有读取该文件的权限，请重新导入。',
+              onRetry: () => retries++,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('没有读取该文件的权限，请重新导入。'), findsOneWidget);
+    await tester.ensureVisible(find.text('重试播放'));
+    await tester.tap(find.text('重试播放'));
+    expect(retries, 1);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('矮屏横向面板保持添加入口可见并能滚动到句子', (tester) async {
     var added = 0;
     await tester.pumpWidget(

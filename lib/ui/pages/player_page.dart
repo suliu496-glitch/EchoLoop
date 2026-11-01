@@ -26,6 +26,7 @@ import '../widgets/fullscreen_playback_surface.dart';
 import '../widgets/glass.dart';
 import '../widgets/loop_panel.dart';
 import '../widgets/media_playback_controls.dart';
+import '../widgets/playback_error_view.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/subtitle_list_view.dart';
 import '../widgets/timeline_bar.dart';
@@ -570,7 +571,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
                 playback.status.label,
                 style: TextStyle(fontSize: 11, color: palette.textSecondary),
               ),
-              if (playback.buffering) ...[
+              if (playback.buffering &&
+                  playback.status != PlaybackStatus.error) ...[
                 const SizedBox(width: 6),
                 SizedBox(
                   width: 10,
@@ -658,6 +660,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   }) {
     final palette = context.palette;
     final cue = overlayText == null ? null : _buildOverlayCue(overlayText);
+
+    if (playback.status == PlaybackStatus.error) {
+      return PlaybackErrorView(
+        message: playback.errorMessage ?? '视频播放失败，请检查文件或重新导入。',
+        onRetry: _retryPlayback,
+      );
+    }
 
     if (!isVideo) {
       return Container(
@@ -919,7 +928,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
                 horizontal: 24,
               )
             : null,
-        video: playback.isVideo
+        video: playback.status == PlaybackStatus.error
+            ? PlaybackErrorView(
+                message: playback.errorMessage ?? '视频播放失败，请检查文件或重新导入。',
+                onRetry: _retryPlayback,
+              )
+            : playback.isVideo
             ? Video(
                 controller: ref.watch(playbackEngineProvider).videoController,
                 controls: NoVideoControls,
@@ -1003,6 +1017,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   // ------------------------------------------------------------------
   // 字幕操作
   // ------------------------------------------------------------------
+
+  Future<void> _retryPlayback() async {
+    final media = _media;
+    if (media == null || media.id != ref.read(playbackProvider).mediaId) return;
+    try {
+      await ref.read(playbackProvider.notifier).openMedia(media);
+    } catch (error) {
+      if (mounted) _toast(humanizeError(error));
+    }
+  }
 
   Future<void> _saveSelectedSentence() async {
     if (_savingSentence) return;
