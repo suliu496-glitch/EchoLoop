@@ -90,8 +90,23 @@ class MediaDao {
     );
   }
 
+  /// 补全缺失的媒体时长，只更新该字段，避免覆盖同时保存的选区和进度。
+  Future<void> updateDurationIfMissing(int id, int durationMs) async {
+    final db = await _db;
+    await db.update(
+      DatabaseSchema.tableMedia,
+      {'duration_ms': durationMs},
+      where: 'id = ? AND duration_ms = 0',
+      whereArgs: [id],
+    );
+  }
+
   /// 记录播放进度与最近播放时间。
-  Future<void> updateProgress(int id, {required int positionMs, required int lastPlayedAt}) async {
+  Future<void> updateProgress(
+    int id, {
+    required int positionMs,
+    required int lastPlayedAt,
+  }) async {
     final db = await _db;
     await db.update(
       DatabaseSchema.tableMedia,

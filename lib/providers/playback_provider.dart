@@ -74,6 +74,7 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
   List<SubtitleCue> _sentencePlaylist = const [];
   int _sentenceIndex = -1;
   bool _autoAdvanceCurrent = false;
+  Future<void> _loopWrites = Future<void>.value();
 
   /// 最近一次通知栏内容，用于去重，避免无意义的刷新
   String _lastNotificationKey = '';
@@ -133,10 +134,7 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     if (snapshot.durationMs > 0 && previous.durationMs == 0) {
       final id = snapshot.mediaId;
       if (id != null) {
-        _mediaDao.findById(id).then((item) {
-          if (item == null || item.durationMs > 0) return;
-          _mediaDao.update(item.copyWith(durationMs: snapshot.durationMs));
-        });
+        unawaited(_mediaDao.updateDurationIfMissing(id, snapshot.durationMs));
       }
     }
 
@@ -159,9 +157,13 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     MediaItem item, {
     List<MediaItem>? queue,
     bool autoPlay = true,
+    bool restartFromBeginning = false,
   }) async {
     final id = item.id;
     if (id == null) return;
+    await _loopWrites;
+    final latest = await _mediaDao.findById(id);
+    if (latest == null) return;
     if (queue != null && queue.isNotEmpty) _queue = queue;
     _cancelSentenceAdvance();
 
@@ -171,25 +173,25 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     final settings = _settings.state;
     await _engine.open(
       mediaId: id,
-      uri: item.uri,
-      name: item.name,
-      isVideo: item.isVideo,
-      startPositionMs: item.positionMs,
+      uri: latest.uri,
+      name: latest.name,
+      isVideo: latest.isVideo,
+      startPositionMs: restartFromBeginning ? 0 : latest.positionMs,
       autoPlay: autoPlay,
-      loopRegion: item.hasLoopRegion
-          ? LoopRegion(startMs: item.loopStartMs!, endMs: item.loopEndMs!)
+      loopRegion: latest.hasLoopRegion
+          ? LoopRegion(startMs: latest.loopStartMs!, endMs: latest.loopEndMs!)
           : null,
-      loopMode: item.hasLoopRegion ? item.loopMode : LoopMode.off,
-      loopCount: item.loopCount,
+      loopMode: latest.hasLoopRegion ? latest.loopMode : LoopMode.off,
+      loopCount: latest.loopCount,
       gapSeconds: settings.gapSeconds,
       speed: settings.speed,
     );
 
     _currentMediaId = id;
-    _currentName = item.name;
+    _currentName = latest.name;
     await _settings.setLastMediaId(id);
     await _background.start(
-      title: item.name,
+      title: latest.name,
       text: _progressText(_engine.snapshot),
       playing: _engine.snapshot.isPlaying,
       speed: _engine.snapshot.speed,
@@ -211,9 +213,9 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     final index = queueIndex;
     if (index < 0 || _queue.isEmpty) return;
     if (index < _queue.length - 1) {
-      await openMedia(_queue[index + 1].copyWith(positionMs: 0));
+      await openMedia(_queue[index + 1], restartFromBeginning: true);
     } else if (_readMediaPlaybackMode() == MediaPlaybackMode.repeatAll) {
-      await openMedia(_queue.first.copyWith(positionMs: 0));
+      await openMedia(_queue.first, restartFromBeginning: true);
     }
   }
 
@@ -237,6 +239,7 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
   Future<void> leavePlayer() async {
     _cancelSentenceAdvance();
     _cancelCompare();
+    await _loopWrites;
     await _persistProgress();
     await _background.stop();
     await _recorder.cancel();
@@ -301,62 +304,94 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
 
   Future<void> setLoopRegion(int startMs, int endMs) async {
     _cancelSentenceAdvance();
-    await _engine.setLoopRegion(startMs, endMs);
-    await _persistLoop();
+    final operation = _engine.setLoopRegion(startMs, endMs);
+    final save = _persistLoop();
+    await operation;
+    await save;
   }
 
   Future<void> nudgeLoopStart(double deltaSeconds) async {
     _cancelSentenceAdvance();
-    final region = state.loopRegion;
+    final region = _engine.snapshot.loopRegion;
     if (region == null) return;
     final next = region.startMs + (deltaSeconds * 1000).round();
-    await _engine.setLoopRegion(
+    final operation = _engine.setLoopRegion(
       next.clamp(0, region.endMs - 100),
       region.endMs,
     );
-    await _persistLoop();
+    final save = _persistLoop();
+    await operation;
+    await save;
   }
 
   Future<void> nudgeLoopEnd(double deltaSeconds) async {
     _cancelSentenceAdvance();
-    final region = state.loopRegion;
+    final region = _engine.snapshot.loopRegion;
     if (region == null) return;
     final next = region.endMs + (deltaSeconds * 1000).round();
-    await _engine.setLoopRegion(region.startMs, next);
-    await _persistLoop();
+    final operation = _engine.setLoopRegion(region.startMs, next);
+    final save = _persistLoop();
+    await operation;
+    await save;
   }
 
   Future<void> setLoopMode(LoopMode mode, {int? count}) async {
     _cancelSentenceAdvance();
-    await _engine.setLoopMode(mode, count: count);
+    final operation = _engine.setLoopMode(mode, count: count);
+    final save = _persistLoop();
+    await operation;
     if (count != null) await _settings.setLoopCount(count);
     await _settings.setLoopMode(mode);
-    await _persistLoop();
+    await save;
   }
 
   Future<void> clearLoopRegion() async {
     _cancelSentenceAdvance();
     _cancelCompare();
-    await _engine.clearLoopRegion();
-    final id = _currentMediaId;
-    if (id != null) await _mediaDao.clearLoopRegion(id);
+    final operation = _engine.clearLoopRegion();
+    final save = _persistLoop();
+    await operation;
+    await save;
   }
 
   Future<void> startLoop() async {
     _cancelCompare();
+    if (_engine.snapshot.loopRegion != null &&
+        _engine.snapshot.loopMode == LoopMode.off) {
+      final preferred = _settings.state.loopMode;
+      final operation = _engine.setLoopMode(
+        preferred == LoopMode.off ? LoopMode.infinite : preferred,
+        count: _settings.state.loopCount,
+      );
+      final save = _persistLoop();
+      await operation;
+      await save;
+    }
     await _engine.startLoop();
+  }
+
+  /// 暂停循环时保留选区；清除选区仍由时间轴上的清除按钮完成。
+  Future<void> stopLoopKeepRegion() async {
+    _cancelSentenceAdvance();
+    _cancelCompare();
+    final operation = _engine.setLoopMode(LoopMode.off);
+    final save = _persistLoop();
+    await operation;
+    await save;
   }
 
   /// 单句循环（需求 §3.2-7）：把该句设为 AB 片段并立即开始循环。
   Future<void> loopCue(SubtitleCue cue) async {
     _cancelSentenceAdvance();
-    await _engine.setLoopRegion(
+    final operation = _engine.setLoopRegion(
       cue.startMs,
       cue.endMs,
       mode: LoopMode.infinite,
     );
+    final save = _persistLoop();
+    await operation;
     await _settings.setLoopMode(LoopMode.infinite);
-    await _persistLoop();
+    await save;
     await _engine.startLoop();
   }
 
@@ -376,22 +411,15 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
         _autoAdvanceCurrent || _settings.state.loopMode == LoopMode.count
         ? LoopMode.count
         : LoopMode.infinite;
-    await _engine.setLoopRegion(
+    final operation = _engine.setLoopRegion(
       cue.startMs,
       cue.endMs,
       mode: mode,
       count: mode == LoopMode.count ? count : null,
     );
-    final id = _currentMediaId;
-    if (id != null) {
-      await _mediaDao.updateLoopRegion(
-        id,
-        startMs: cue.startMs,
-        endMs: cue.endMs,
-        mode: mode,
-        count: mode == LoopMode.count ? count : 1,
-      );
-    }
+    final save = _persistLoop();
+    await operation;
+    await save;
     await _engine.startLoop();
   }
 
@@ -416,22 +444,15 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     _sentenceIndex = nextIndex;
     Future<void>.delayed(Duration.zero, () async {
       if (!_autoAdvanceCurrent) return;
-      await _engine.setLoopRegion(
+      final operation = _engine.setLoopRegion(
         nextCue.startMs,
         nextCue.endMs,
         mode: LoopMode.count,
         count: count,
       );
-      final id = _currentMediaId;
-      if (id != null) {
-        await _mediaDao.updateLoopRegion(
-          id,
-          startMs: nextCue.startMs,
-          endMs: nextCue.endMs,
-          mode: LoopMode.count,
-          count: count,
-        );
-      }
+      final save = _persistLoop();
+      await operation;
+      await save;
       if (_autoAdvanceCurrent) await _engine.startLoop();
     });
   }
@@ -452,21 +473,28 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     }
   }
 
-  Future<void> _persistLoop() async {
-    final id = _currentMediaId;
-    final region = state.loopRegion;
-    if (id == null) return;
-    if (region == null) {
-      await _mediaDao.clearLoopRegion(id);
-      return;
-    }
-    await _mediaDao.updateLoopRegion(
-      id,
-      startMs: region.startMs,
-      endMs: region.endMs,
-      mode: state.loopMode,
-      count: state.loopCount,
-    );
+  Future<void> _persistLoop() {
+    final snapshot = _engine.snapshot;
+    final id = snapshot.mediaId;
+    final region = snapshot.loopRegion;
+    if (id == null || id != _currentMediaId) return Future<void>.value();
+    // Serialize saves so rapid drags cannot finish out of order. Capture the
+    // engine snapshot now, before any asynchronous seek or player shutdown.
+    final write = _loopWrites.catchError((_) {}).then((_) async {
+      if (region == null) {
+        await _mediaDao.clearLoopRegion(id);
+      } else {
+        await _mediaDao.updateLoopRegion(
+          id,
+          startMs: region.startMs,
+          endMs: region.endMs,
+          mode: snapshot.loopMode,
+          count: snapshot.loopCount,
+        );
+      }
+    });
+    _loopWrites = write;
+    return write;
   }
 
   // ------------------------------------------------------------------
@@ -565,10 +593,11 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
   }
 
   Future<void> _persistProgress() async {
-    final id = _currentMediaId ?? state.mediaId;
+    final snapshot = _engine.snapshot;
+    final id = snapshot.mediaId;
     if (id == null) return;
-    final position = state.positionMs;
-    final duration = state.durationMs;
+    final position = snapshot.positionMs;
+    final duration = snapshot.durationMs;
     // 播完的文件把进度归零，下次进入从头开始（需求 §4.2：不做自动循环整文件）
     final savedPosition = (duration > 0 && position >= duration - 1200)
         ? 0
