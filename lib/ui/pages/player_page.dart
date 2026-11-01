@@ -21,6 +21,7 @@ import '../../providers/playback_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/subtitle_provider.dart';
 import '../adaptive/screen_adaptation.dart';
+import '../widgets/compact_landscape_panel.dart';
 import '../widgets/fullscreen_playback_surface.dart';
 import '../widgets/glass.dart';
 import '../widgets/loop_panel.dart';
@@ -530,13 +531,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           flex: 4,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, AppDimens.pagePadding, 0),
-            child: Column(
-              children: [
-                _buildTimeline(playback, settings),
-                _buildMediaPlaybackControls(playback),
-                const SizedBox(height: 4),
-                Expanded(child: _buildSubtitleArea(settings)),
-              ],
+            child: CompactLandscapePanel(
+              controls: _buildMediaPlaybackControls(playback),
+              timeline: _buildTimeline(playback, settings),
+              sentences: _buildSubtitleArea(settings),
             ),
           ),
         ),
