@@ -250,13 +250,10 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
                 ChoiceChip(
                   label: Text('$count 遍'),
                   selected:
-                      settings.loopMode == LoopMode.count &&
-                      settings.loopCount == count &&
-                      !settings.autoAdvanceSentences,
+                      (settings.autoAdvanceSentences ||
+                          settings.loopMode == LoopMode.count) &&
+                      settings.loopCount == count,
                   onSelected: (_) async {
-                    await ref
-                        .read(settingsProvider.notifier)
-                        .setAutoAdvanceSentences(false);
                     await ref
                         .read(settingsProvider.notifier)
                         .setLoopCount(count);
@@ -269,9 +266,6 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
               PopupMenuButton<int>(
                 tooltip: '更多循环次数',
                 onSelected: (count) async {
-                  await ref
-                      .read(settingsProvider.notifier)
-                      .setAutoAdvanceSentences(false);
                   await ref.read(settingsProvider.notifier).setLoopCount(count);
                   await ref
                       .read(settingsProvider.notifier)
@@ -284,8 +278,8 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
                 ],
                 child: Chip(
                   label: Text(
-                    settings.loopMode == LoopMode.count &&
-                            !settings.autoAdvanceSentences &&
+                    (settings.autoAdvanceSentences ||
+                                settings.loopMode == LoopMode.count) &&
                             settings.loopCount > 4
                         ? '${settings.loopCount} 遍'
                         : '更多次数',
