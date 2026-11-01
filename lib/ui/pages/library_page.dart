@@ -5,6 +5,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/core_providers.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/playback_provider.dart';
 import '../../services/native_channel.dart';
 import '../widgets/device_media_sheet.dart';
 import '../widgets/glass.dart';
@@ -39,7 +40,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     ref.listen(mediaLibraryProvider, (previous, next) {
       final error = next.error;
       if (error != null && error != previous?.error) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
         ref.read(mediaLibraryProvider.notifier).consumeError();
       }
     });
@@ -125,9 +128,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           IconButton(
             tooltip: '设置',
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            ),
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const SettingsPage())),
           ),
         ],
       ),
@@ -158,7 +161,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     }
 
     if (state.isEmpty) {
-      return _EmptyLibrary(onImport: _importFromPicker, onScan: _openDeviceMedia);
+      return _EmptyLibrary(
+        onImport: _importFromPicker,
+        onScan: _openDeviceMedia,
+      );
     }
 
     return RefreshIndicator(
@@ -196,10 +202,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   // 打开播放页
   // ------------------------------------------------------------------
 
-  void _openPlayer(int mediaId) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PlayerPage(mediaId: mediaId)),
-    );
+  Future<void> _openPlayer(int mediaId) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => PlayerPage(mediaId: mediaId)));
+    if (!mounted) return;
+    await ref.read(playbackProvider.notifier).waitForPlayerClosed();
+    if (!mounted) return;
+    await ref.read(mediaLibraryProvider.notifier).refresh();
   }
 
   // ------------------------------------------------------------------
@@ -207,18 +217,20 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   // ------------------------------------------------------------------
 
   Future<void> _importFromPicker() async {
-    final result = await ref.read(mediaLibraryProvider.notifier).importFromPicker();
+    final result = await ref
+        .read(mediaLibraryProvider.notifier)
+        .importFromPicker();
     if (!mounted) return;
     if (result == null) return;
     if (result.total == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('没有选择文件')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('没有选择文件')));
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result.summary)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(result.summary)));
     if (result.unsupported.isNotEmpty) {
       final supported = ref
           .read(mediaImportServiceProvider)
@@ -241,7 +253,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
     // 扫描设备媒体需要按 API 版本申请对应权限，具体申请哪些由原生侧决定
     final granted = await ref.read(nativeChannelProvider).requestPermissions(
-      const [NativePermissionGroup.mediaVideo, NativePermissionGroup.mediaAudio],
+      const [
+        NativePermissionGroup.mediaVideo,
+        NativePermissionGroup.mediaAudio,
+      ],
     );
     final videoOk = granted[NativePermissionGroup.mediaVideo.wire] ?? false;
     final audioOk = granted[NativePermissionGroup.mediaAudio.wire] ?? false;

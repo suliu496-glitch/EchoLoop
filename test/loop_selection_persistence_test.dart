@@ -74,6 +74,16 @@ class _Engine extends Fake implements PlaybackEngine {
   @override
   Future<void> startLoop() async {}
   @override
+  Future<void> seekTo(int milliseconds, {bool userInitiated = true}) async {
+    snapshot = snapshot.copyWith(positionMs: milliseconds);
+  }
+
+  @override
+  Future<void> play() async {
+    snapshot = snapshot.copyWith(status: PlaybackStatus.playing);
+  }
+
+  @override
   Future<void> close() async {
     snapshot = const PlaybackSnapshot();
   }
@@ -82,6 +92,7 @@ class _Engine extends Fake implements PlaybackEngine {
 class _Dao extends Fake implements MediaDao {
   final items = <int, MediaItem>{};
   Completer<void>? nextWriteGate;
+  Completer<void>? nextProgressGate;
   @override
   Future<MediaItem?> findById(int id) async => items[id];
   @override
@@ -117,6 +128,9 @@ class _Dao extends Fake implements MediaDao {
     required int positionMs,
     required int lastPlayedAt,
   }) async {
+    final gate = nextProgressGate;
+    nextProgressGate = null;
+    if (gate != null) await gate.future;
     items[id] = items[id]!.copyWith(
       positionMs: positionMs,
       lastPlayedAt: lastPlayedAt,
@@ -254,6 +268,89 @@ void main() {
       engine.snapshot.loopRegion,
       const LoopRegion(startMs: 3000, endMs: 5000),
     );
+    notifier.dispose();
+    await engine.events.close();
+  });
+
+  test('折叠精听从头播放并保留选区，离开和重开都重置进度', () async {
+    final dao = _Dao();
+    final engine = _Engine();
+    final item = MediaItem(
+      id: 1,
+      uri: 'one',
+      name: 'one',
+      kind: MediaKind.video,
+      createdAt: 1,
+      positionMs: 8000,
+      loopStartMs: 2000,
+      loopEndMs: 4000,
+      loopMode: LoopMode.infinite,
+    );
+    dao.items[1] = item;
+    final notifier = PlaybackNotifier(
+      engine: engine,
+      mediaDao: dao,
+      settings: _Settings(),
+      background: _Background(),
+      recorder: _Recorder(),
+      readMediaPlaybackMode: () => MediaPlaybackMode.sequential,
+    );
+    await notifier.openMedia(item, autoPlay: false);
+    expect(engine.snapshot.positionMs, 0);
+    engine.snapshot = engine.snapshot.copyWith(positionMs: 2500);
+    await notifier.exitPrecisionAndRestart();
+    expect(engine.snapshot.positionMs, 0);
+    expect(engine.snapshot.status, PlaybackStatus.playing);
+    expect(engine.snapshot.loopMode, LoopMode.off);
+    expect(
+      engine.snapshot.loopRegion,
+      const LoopRegion(startMs: 2000, endMs: 4000),
+    );
+    engine.snapshot = engine.snapshot.copyWith(positionMs: 6000);
+    await notifier.leavePlayer();
+    expect(dao.items[1]!.positionMs, 0);
+    await notifier.openMedia(item, autoPlay: false);
+    expect(engine.snapshot.positionMs, 0);
+    expect(
+      engine.snapshot.loopRegion,
+      const LoopRegion(startMs: 2000, endMs: 4000),
+    );
+    notifier.dispose();
+    await engine.events.close();
+  });
+
+  test('退出时先前的异步进度写入不能覆盖重置的零点', () async {
+    final dao = _Dao();
+    final engine = _Engine();
+    final item = MediaItem(
+      id: 1,
+      uri: 'one',
+      name: 'one',
+      kind: MediaKind.video,
+      createdAt: 1,
+    );
+    dao.items[1] = item;
+    final notifier = PlaybackNotifier(
+      engine: engine,
+      mediaDao: dao,
+      settings: _Settings(),
+      background: _Background(),
+      recorder: _Recorder(),
+      readMediaPlaybackMode: () => MediaPlaybackMode.sequential,
+    );
+    await notifier.openMedia(item, autoPlay: false);
+    engine.snapshot = engine.snapshot.copyWith(
+      positionMs: 7000,
+      durationMs: 10000,
+    );
+    final gate = Completer<void>();
+    dao.nextProgressGate = gate;
+    final progress = notifier.flushProgress();
+    await Future<void>.delayed(Duration.zero);
+    final closing = notifier.leavePlayer();
+    gate.complete();
+    await Future.wait([progress, closing]);
+    expect(dao.items[1]!.positionMs, 0);
     notifier.dispose();
     await engine.events.close();
   });

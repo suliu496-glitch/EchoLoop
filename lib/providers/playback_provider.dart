@@ -75,6 +75,9 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
   int _sentenceIndex = -1;
   bool _autoAdvanceCurrent = false;
   Future<void> _loopWrites = Future<void>.value();
+  Future<void> _progressWrites = Future<void>.value();
+  Future<void>? _leaveFuture;
+  bool _leaving = false;
 
   /// 最近一次通知栏内容，用于去重，避免无意义的刷新
   String _lastNotificationKey = '';
@@ -157,17 +160,20 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     MediaItem item, {
     List<MediaItem>? queue,
     bool autoPlay = true,
-    bool restartFromBeginning = false,
   }) async {
     final id = item.id;
     if (id == null) return;
+    final closing = _leaveFuture;
+    if (closing != null) await closing;
     await _loopWrites;
     final latest = await _mediaDao.findById(id);
     if (latest == null) return;
     if (queue != null && queue.isNotEmpty) _queue = queue;
     _cancelSentenceAdvance();
 
-    await _persistProgress();
+    final previousId = _engine.snapshot.mediaId;
+    if (previousId != null) await _writeProgress(previousId, 0);
+    await _writeProgress(id, 0);
     _cancelCompare();
 
     final settings = _settings.state;
@@ -176,7 +182,7 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
       uri: latest.uri,
       name: latest.name,
       isVideo: latest.isVideo,
-      startPositionMs: restartFromBeginning ? 0 : latest.positionMs,
+      startPositionMs: 0,
       autoPlay: autoPlay,
       loopRegion: latest.hasLoopRegion
           ? LoopRegion(startMs: latest.loopStartMs!, endMs: latest.loopEndMs!)
@@ -213,9 +219,9 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     final index = queueIndex;
     if (index < 0 || _queue.isEmpty) return;
     if (index < _queue.length - 1) {
-      await openMedia(_queue[index + 1], restartFromBeginning: true);
+      await openMedia(_queue[index + 1]);
     } else if (_readMediaPlaybackMode() == MediaPlaybackMode.repeatAll) {
-      await openMedia(_queue.first, restartFromBeginning: true);
+      await openMedia(_queue.first);
     }
   }
 
@@ -236,15 +242,36 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
   }
 
   /// 离开播放页：停掉后台服务、落盘进度、释放文件描述符。
-  Future<void> leavePlayer() async {
+  Future<void> leavePlayer() {
+    final pending = _leaveFuture;
+    if (pending != null) return pending;
+    final task = _leavePlayer();
+    _leaveFuture = task;
+    return task.whenComplete(() {
+      if (identical(_leaveFuture, task)) _leaveFuture = null;
+    });
+  }
+
+  Future<void> _leavePlayer() async {
+    _leaving = true;
     _cancelSentenceAdvance();
     _cancelCompare();
-    await _loopWrites;
-    await _persistProgress();
-    await _background.stop();
-    await _recorder.cancel();
-    await _engine.close();
+    _ticker?.cancel();
+    _ticker = null;
+    final id = _engine.snapshot.mediaId;
+    try {
+      await _loopWrites;
+      if (id != null) await _writeProgress(id, 0);
+      await _background.stop();
+      await _recorder.cancel();
+      await _engine.close();
+      _currentMediaId = null;
+    } finally {
+      _leaving = false;
+    }
   }
+
+  Future<void> waitForPlayerClosed() => _leaveFuture ?? Future<void>.value();
 
   // ------------------------------------------------------------------
   // 基础播放控制
@@ -380,6 +407,15 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     await save;
   }
 
+  /// 退出精听，从媒体开头正常播放，保留已经框选的 A/B 边界。
+  Future<void> exitPrecisionAndRestart() async {
+    if (!_engine.snapshot.hasMedia) return;
+    await stopLoopKeepRegion();
+    await _engine.seekTo(0);
+    await _engine.play();
+    await _persistProgress();
+  }
+
   /// 单句循环（需求 §3.2-7）：把该句设为 AB 片段并立即开始循环。
   Future<void> loopCue(SubtitleCue cue) async {
     _cancelSentenceAdvance();
@@ -461,6 +497,18 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     _autoAdvanceCurrent = false;
     _sentencePlaylist = const [];
     _sentenceIndex = -1;
+  }
+
+  /// A changed sentence invalidates the cached sequential playlist.
+  Future<void> sentenceChanged({
+    required int startMs,
+    required int endMs,
+  }) async {
+    _cancelSentenceAdvance();
+    final region = _engine.snapshot.loopRegion;
+    if (region != null && region.startMs == startMs && region.endMs == endMs) {
+      await stopLoopKeepRegion();
+    }
   }
 
   /// 跳到某句并从头听（不改变循环区间）。
@@ -593,6 +641,7 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
   }
 
   Future<void> _persistProgress() async {
+    if (_leaving) return;
     final snapshot = _engine.snapshot;
     final id = snapshot.mediaId;
     if (id == null) return;
@@ -602,11 +651,21 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     final savedPosition = (duration > 0 && position >= duration - 1200)
         ? 0
         : position;
-    await _mediaDao.updateProgress(
-      id,
-      positionMs: savedPosition,
-      lastPlayedAt: DateTime.now().millisecondsSinceEpoch,
-    );
+    await _writeProgress(id, savedPosition);
+  }
+
+  Future<void> _writeProgress(int id, int positionMs) {
+    final write = _progressWrites
+        .catchError((_) {})
+        .then(
+          (_) => _mediaDao.updateProgress(
+            id,
+            positionMs: positionMs,
+            lastPlayedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+    _progressWrites = write;
+    return write;
   }
 
   /// 暴露给界面：把当前进度落盘（例如 App 退到后台时）。
