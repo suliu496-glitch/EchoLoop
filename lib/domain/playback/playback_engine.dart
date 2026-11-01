@@ -43,10 +43,11 @@ import 'playback_state.dart';
 /// 否则一跨进区间就被旧选区拽回 A 点，体验很糟。跳回区间内或用
 /// [startLoop] 会重新激活。
 class PlaybackEngine {
-  PlaybackEngine({required PlayableSourceResolver resolver, Player? player})
+  PlaybackEngine({required PlayableSourceResolver resolver, Player? player,
+    VideoController? videoController})
       : _resolver = resolver,
         _player = player ?? Player() {
-    videoController = VideoController(_player);
+    this.videoController = videoController ?? VideoController(_player);
     _bindPlayerStreams();
   }
 
@@ -115,6 +116,7 @@ class PlaybackEngine {
 
     _subscriptions.add(_player.stream.playing.listen((playing) {
       if (_handlingBoundary || _disposed) return;
+      if (_snapshot.status == PlaybackStatus.error) return;
       if (playing) {
         if (_snapshot.status != PlaybackStatus.playing) {
           _update(status: PlaybackStatus.playing, clearError: true);
@@ -131,6 +133,7 @@ class PlaybackEngine {
     }));
 
     _subscriptions.add(_player.stream.buffering.listen((buffering) {
+      if (_snapshot.status == PlaybackStatus.error) return;
       // 卡顿时音频没往前走，时钟必须一起冻结，否则会把「卡了 1 秒」算成
       // 「播了 1 秒」，于是误判越过 B 点，句子被切掉
       if (buffering) {
@@ -145,6 +148,7 @@ class PlaybackEngine {
 
     _subscriptions.add(_player.stream.completed.listen((completed) {
       if (!completed || _disposed) return;
+      if (_snapshot.status == PlaybackStatus.error) return;
       if (_handlingBoundary) return;
       // B 点处于媒体末尾时，播放器可能先停止，时钟无法再走到 B + 容差。
       // 以播放完成事件确认这一遍已经结束，直接执行正常的循环边界流程。
@@ -166,6 +170,7 @@ class PlaybackEngine {
       if (message.trim().isEmpty || _disposed) return;
       _update(
         status: PlaybackStatus.error,
+        buffering: false,
         errorMessage: _friendlyPlaybackError(message),
       );
     }));
@@ -227,6 +232,7 @@ class PlaybackEngine {
     } catch (error) {
       _update(
         status: PlaybackStatus.error,
+        buffering: false,
         errorMessage: humanizeError(error),
       );
     }
@@ -260,7 +266,12 @@ class PlaybackEngine {
     _gapGeneration++;
     _clock.stop();
     if (uri != null) {
-      await _resolver.release(uri);
+      // Stop libmpv before closing a descriptor it may still be reading.
+      try {
+        await _player.stop();
+      } finally {
+        await _resolver.release(uri);
+      }
     }
   }
 
@@ -598,7 +609,7 @@ class PlaybackEngine {
           break;
       }
     } catch (error) {
-      _update(status: PlaybackStatus.error, errorMessage: humanizeError(error));
+      _update(status: PlaybackStatus.error, buffering: false, errorMessage: humanizeError(error));
     } finally {
       _handlingBoundary = false;
     }
