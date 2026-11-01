@@ -15,6 +15,7 @@ class SettingKeys {
   static const String transcriberModel = 'transcriber.model';
   static const String transcriberLanguage = 'transcriber.language';
   static const String autoAdvanceSentences = 'study.auto_advance_sentences';
+  static const String repeatSentenceList = 'study.repeat_sentence_list';
   static const String recordDuringGap = 'shadowing.record_during_gap';
   static const String themeMode = 'ui.theme_mode';
   static const String lastMediaId = 'library.last_media_id';
@@ -38,6 +39,7 @@ class AppSettings {
     this.transcriberModel = 'whisper-1',
     this.transcriberLanguage = '',
     this.autoAdvanceSentences = false,
+    this.repeatSentenceList = false,
     this.transcriberApiKeyConfigured = false,
     this.recordDuringGap = false,
     this.themeMode = ThemeModeSetting.system,
@@ -71,6 +73,7 @@ class AppSettings {
 
   /// When enabled, sentence loops use the configured repeat count and advance automatically.
   final bool autoAdvanceSentences;
+  final bool repeatSentenceList;
 
   /// Runtime-only status; the key itself is never written to the settings table.
   final bool transcriberApiKeyConfigured;
@@ -96,6 +99,7 @@ class AppSettings {
     String? transcriberModel,
     String? transcriberLanguage,
     bool? autoAdvanceSentences,
+    bool? repeatSentenceList,
     bool? transcriberApiKeyConfigured,
     bool? recordDuringGap,
     ThemeModeSetting? themeMode,
@@ -112,6 +116,7 @@ class AppSettings {
       transcriberModel: transcriberModel ?? this.transcriberModel,
       transcriberLanguage: transcriberLanguage ?? this.transcriberLanguage,
       autoAdvanceSentences: autoAdvanceSentences ?? this.autoAdvanceSentences,
+      repeatSentenceList: repeatSentenceList ?? this.repeatSentenceList,
       transcriberApiKeyConfigured:
           transcriberApiKeyConfigured ?? this.transcriberApiKeyConfigured,
       recordDuringGap: recordDuringGap ?? this.recordDuringGap,
@@ -140,6 +145,10 @@ class AppSettings {
         values[SettingKeys.autoAdvanceSentences],
         false,
       ),
+      repeatSentenceList: _asBool(
+        values[SettingKeys.repeatSentenceList],
+        false,
+      ),
       recordDuringGap: _asBool(values[SettingKeys.recordDuringGap], false),
       themeMode: ThemeModeSetting.fromWire(values[SettingKeys.themeMode]),
       lastMediaId: int.tryParse(values[SettingKeys.lastMediaId] ?? ''),
@@ -157,6 +166,7 @@ class AppSettings {
     SettingKeys.transcriberModel: transcriberModel,
     SettingKeys.transcriberLanguage: transcriberLanguage,
     SettingKeys.autoAdvanceSentences: autoAdvanceSentences ? '1' : '0',
+    SettingKeys.repeatSentenceList: repeatSentenceList ? '1' : '0',
     SettingKeys.recordDuringGap: recordDuringGap ? '1' : '0',
     SettingKeys.themeMode: themeMode.wire,
     if (lastMediaId != null) SettingKeys.lastMediaId: lastMediaId.toString(),

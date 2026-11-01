@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/duration_utils.dart';
 import '../../data/models/subtitle_models.dart';
+import '../../data/models/media_item.dart' show LoopMode;
 import '../../domain/subtitles/subtitle_cue.dart';
 import '../../providers/playback_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -79,7 +80,8 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
     final settings = ref.watch(settingsProvider);
     SubtitleTrack? autoSentenceTrack;
     for (final track in subtitleState.activeTracks) {
-      if (track.source == SubtitleSource.ai && track.name == 'AI 自动分句') {
+      if ((track.source == SubtitleSource.ai && track.name == 'AI 自动分句') ||
+          (track.source == SubtitleSource.manual && track.name == '手动断句')) {
         autoSentenceTrack = track;
         break;
       }
@@ -112,6 +114,23 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
     final sentencePlaylist = focusMode
         ? lines.map(_toCue).toList(growable: false)
         : const <SubtitleCue>[];
+
+    Future<void> restartSelected() async {
+      if (!mounted) return;
+      final region = ref.read(playbackProvider).loopRegion;
+      if (region == null) return;
+      final matches = sentencePlaylist.where(
+        (cue) => cue.startMs == region.startMs && cue.endMs == region.endMs,
+      );
+      if (matches.isEmpty) return;
+      await ref
+          .read(playbackProvider.notifier)
+          .loopSentence(
+            matches.first,
+            playlist: sentencePlaylist,
+            autoAdvance: ref.read(settingsProvider).autoAdvanceSentences,
+          );
+    }
 
     // 当前句变化才滚动，避免每 80ms 一次的位置回调都在动列表
     if (_consumeAnchorChange(anchorIndex)) {
@@ -154,23 +173,6 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
                 style: TextStyle(fontSize: 12, color: palette.textSecondary),
               ),
               const Spacer(),
-              if (focusMode) ...[
-                Text(
-                  settings.autoAdvanceSentences
-                      ? '自动推进 · ${settings.loopCount} 遍'
-                      : '单句循环',
-                  style: TextStyle(fontSize: 10.5, color: palette.textTertiary),
-                ),
-                Transform.scale(
-                  scale: 0.78,
-                  child: Switch.adaptive(
-                    value: settings.autoAdvanceSentences,
-                    onChanged: ref
-                        .read(settingsProvider.notifier)
-                        .setAutoAdvanceSentences,
-                  ),
-                ),
-              ],
               if (_userScrolling)
                 Text(
                   '已暂停自动滚动',
@@ -193,6 +195,105 @@ class _SubtitleListViewState extends ConsumerState<SubtitleListView> {
             ],
           ),
         ),
+        if (focusMode)
+          Wrap(
+            spacing: 4,
+            children: [
+              ChoiceChip(
+                label: const Text('顺序播放'),
+                selected:
+                    settings.autoAdvanceSentences &&
+                    !settings.repeatSentenceList,
+                onSelected: (_) async {
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setRepeatSentenceList(false);
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setAutoAdvanceSentences(true);
+                  await ref.read(settingsProvider.notifier).setLoopCount(1);
+                  await restartSelected();
+                },
+              ),
+              ChoiceChip(
+                label: const Text('列表循环'),
+                selected:
+                    settings.autoAdvanceSentences &&
+                    settings.repeatSentenceList,
+                onSelected: (_) async {
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setRepeatSentenceList(true);
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setAutoAdvanceSentences(true);
+                  await ref.read(settingsProvider.notifier).setLoopCount(1);
+                  await restartSelected();
+                },
+              ),
+              ChoiceChip(
+                label: const Text('无限循环'),
+                selected:
+                    !settings.autoAdvanceSentences &&
+                    settings.loopMode != LoopMode.count,
+                onSelected: (_) async {
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setAutoAdvanceSentences(false);
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setLoopMode(LoopMode.infinite);
+                  await restartSelected();
+                },
+              ),
+              for (final count in [1, 2, 3, 4])
+                ChoiceChip(
+                  label: Text('$count 遍'),
+                  selected:
+                      settings.loopMode == LoopMode.count &&
+                      settings.loopCount == count &&
+                      !settings.autoAdvanceSentences,
+                  onSelected: (_) async {
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setAutoAdvanceSentences(false);
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setLoopCount(count);
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setLoopMode(LoopMode.count);
+                    await restartSelected();
+                  },
+                ),
+              PopupMenuButton<int>(
+                tooltip: '更多循环次数',
+                onSelected: (count) async {
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setAutoAdvanceSentences(false);
+                  await ref.read(settingsProvider.notifier).setLoopCount(count);
+                  await ref
+                      .read(settingsProvider.notifier)
+                      .setLoopMode(LoopMode.count);
+                  await restartSelected();
+                },
+                itemBuilder: (_) => [
+                  for (var count = 5; count <= 20; count++)
+                    PopupMenuItem(value: count, child: Text('$count 遍')),
+                ],
+                child: Chip(
+                  label: Text(
+                    settings.loopMode == LoopMode.count &&
+                            !settings.autoAdvanceSentences &&
+                            settings.loopCount > 4
+                        ? '${settings.loopCount} 遍'
+                        : '更多次数',
+                  ),
+                ),
+              ),
+            ],
+          ),
         Expanded(
           child: NotificationListener<ScrollNotification>(
             onNotification: (notification) {
@@ -376,7 +477,11 @@ class _SubtitleTile extends StatelessWidget {
                   ),
                 Expanded(
                   child: Text(
-                    line.text.isEmpty ? '（空字幕，点右上角编辑）' : line.text,
+                    line.text.isEmpty
+                        ? (focusMode
+                              ? '${DurationUtils.formatShort(line.startMs)} - ${DurationUtils.formatShort(line.endMs)}'
+                              : '（空字幕，点右上角编辑）')
+                        : line.text,
                     style: TextStyle(
                       fontSize: 14,
                       height: focusMode ? 1.3 : 1.35,

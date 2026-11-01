@@ -37,8 +37,9 @@ class LoopControlPanel extends ConsumerWidget {
     final hasSubtitles = ref.watch(subtitleProvider).cues.isNotEmpty;
 
     // 标记点落位时同样走字幕吸附（需求 §4.1：手动选择的边界自动吸附）
-    int snap(int ms) =>
-        ref.read(subtitleProvider.notifier).snap(ms, enabled: settings.snapToSubtitle);
+    int snap(int ms) => ref
+        .read(subtitleProvider.notifier)
+        .snap(ms, enabled: settings.snapToSubtitle);
 
     return GlassPanel(
       margin: const EdgeInsets.all(10),
@@ -59,7 +60,10 @@ class LoopControlPanel extends ConsumerWidget {
               if (region != null)
                 Text(
                   '时长 ${DurationUtils.formatClock(region.endMs - region.startMs)}',
-                  style: TextStyle(fontSize: 11.5, color: palette.textSecondary),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: palette.textSecondary,
+                  ),
                 ),
             ],
           ),
@@ -76,7 +80,8 @@ class LoopControlPanel extends ConsumerWidget {
                   label: '设 A 为当前',
                   onTap: () {
                     final pos = snap(snapshot.positionMs);
-                    final end = region?.endMs ??
+                    final end =
+                        region?.endMs ??
                         (pos + 3000).clamp(0, snapshot.durationMs);
                     final safeEnd = end > pos + 100 ? end : pos + 3000;
                     ref
@@ -92,7 +97,8 @@ class LoopControlPanel extends ConsumerWidget {
                   label: '设 B 为当前',
                   onTap: () {
                     final pos = snap(snapshot.positionMs);
-                    final start = region?.startMs ??
+                    final start =
+                        region?.startMs ??
                         (pos - 3000).clamp(0, snapshot.durationMs);
                     final safeStart = start < pos - 100 ? start : 0;
                     ref
@@ -109,8 +115,8 @@ class LoopControlPanel extends ConsumerWidget {
                   onTap: region == null
                       ? null
                       : () => ref
-                          .read(playbackProvider.notifier)
-                          .clearLoopRegion(),
+                            .read(playbackProvider.notifier)
+                            .clearLoopRegion(),
                 ),
               ),
             ],
@@ -126,6 +132,23 @@ class LoopControlPanel extends ConsumerWidget {
               color: palette.textTertiary,
             ),
           ),
+          if (region != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final message = await ref
+                    .read(subtitleProvider.notifier)
+                    .addSelectedSentence(region.startMs, region.endMs);
+                final error = ref.read(subtitleProvider).error;
+                messenger.showSnackBar(
+                  SnackBar(content: Text(message ?? error ?? '保存失败')),
+                );
+              },
+              icon: const Icon(Icons.playlist_add_rounded),
+              label: const Text('将选区保存为一句'),
+            ),
+          ],
 
           // ---------------- 2. 端点精调 ----------------
           if (region != null) ...[
@@ -160,7 +183,8 @@ class LoopControlPanel extends ConsumerWidget {
             children: [
               GlassChip(
                 label: '无限循环',
-                selected: region != null && snapshot.loopMode == LoopMode.infinite,
+                selected:
+                    region != null && snapshot.loopMode == LoopMode.infinite,
                 onTap: () => ref
                     .read(playbackProvider.notifier)
                     .setLoopMode(LoopMode.infinite),
@@ -168,7 +192,8 @@ class LoopControlPanel extends ConsumerWidget {
               for (final count in AppConstants.loopCountPresets)
                 GlassChip(
                   label: '$count 遍',
-                  selected: region != null &&
+                  selected:
+                      region != null &&
                       snapshot.loopMode == LoopMode.count &&
                       snapshot.loopCount == count,
                   onTap: () => ref
@@ -187,7 +212,10 @@ class LoopControlPanel extends ConsumerWidget {
 
           // ---------------- 4. 跟读 ----------------
           const SizedBox(height: 16),
-          GlassSectionTitle(icon: Icons.hourglass_bottom_rounded, title: '跟读停顿'),
+          GlassSectionTitle(
+            icon: Icons.hourglass_bottom_rounded,
+            title: '跟读停顿',
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -205,7 +233,11 @@ class LoopControlPanel extends ConsumerWidget {
           const SizedBox(height: 8),
           Text(
             '每循环一遍先静默这几秒，留时间让你开口跟读。默认值可以在设置里改。',
-            style: TextStyle(fontSize: 11.5, height: 1.5, color: palette.textTertiary),
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.5,
+              color: palette.textTertiary,
+            ),
           ),
 
           const SizedBox(height: 16),
@@ -347,9 +379,9 @@ class _RecordingRow extends ConsumerWidget {
                             .read(playbackProvider.notifier)
                             .compareWithRecording();
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(message)),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(message)));
                       },
               ),
             ),
@@ -360,7 +392,8 @@ class _RecordingRow extends ConsumerWidget {
                 label: '删除录音',
                 onTap: clip == null
                     ? null
-                    : () => ref.read(playbackProvider.notifier).deleteRecording(),
+                    : () =>
+                          ref.read(playbackProvider.notifier).deleteRecording(),
               ),
             ),
           ],
@@ -370,8 +403,12 @@ class _RecordingRow extends ConsumerWidget {
           clip == null
               ? '还没有录音。开启「停顿自动录音」后，每遍停顿会录下你的跟读。'
               : '已保存 1 段录音 · ${DurationUtils.formatShort(clip.durationMs)}，'
-                  '点「对比播放」先听原声再听自己',
-          style: TextStyle(fontSize: 11.5, height: 1.5, color: palette.textTertiary),
+                    '点「对比播放」先听原声再听自己',
+          style: TextStyle(
+            fontSize: 11.5,
+            height: 1.5,
+            color: palette.textTertiary,
+          ),
         ),
         if (settings.recordDuringGap && !settings.gapEnabled) ...[
           const SizedBox(height: 6),
@@ -416,14 +453,13 @@ class _PresetRow extends ConsumerWidget {
               label: '收藏当前片段',
               icon: Icons.add_rounded,
               onTap: () async {
-                await ref.read(loopPresetProvider.notifier).add(
-                      startMs: region.startMs,
-                      endMs: region.endMs,
-                    );
+                await ref
+                    .read(loopPresetProvider.notifier)
+                    .add(startMs: region.startMs, endMs: region.endMs);
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已收藏当前片段')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('已收藏当前片段')));
               },
             ),
             for (final preset in presets)

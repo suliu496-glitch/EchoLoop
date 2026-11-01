@@ -164,6 +164,36 @@ class SubtitleNotifier extends StateNotifier<SubtitleState> {
   }
 
   /// 在当前播放位置插入一句（已有激活字幕轨时用）。
+  Future<String?> addSelectedSentence(int startMs, int endMs) async {
+    final mediaId = state.mediaId;
+    if (mediaId == null || startMs < 0 || endMs <= startMs) return null;
+    try {
+      SubtitleTrack? selected;
+      for (final track in state.tracks) {
+        if (track.source == SubtitleSource.manual && track.name == '手动断句') {
+          selected = track;
+          break;
+        }
+      }
+      selected ??= await _service.createManualTrack(mediaId, name: '手动断句');
+      final trackId = selected.id!;
+      await _service.addLine(
+        mediaId: mediaId,
+        trackId: trackId,
+        startMs: startMs,
+        endMs: endMs,
+      );
+      await _service.toggleTrackExclusive(mediaId, trackId, true);
+      await _reload(mediaId);
+      return '已保存断句，按时间自动排序';
+    } catch (error) {
+      state = state.copyWith(
+        error: SubtitleService.asAppException(error).message,
+      );
+      return null;
+    }
+  }
+
   Future<String?> addLineAt(int positionMs) async {
     final mediaId = state.mediaId;
     if (mediaId == null) return null;

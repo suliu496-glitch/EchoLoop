@@ -10,6 +10,7 @@ import '../data/models/media_item.dart';
 import '../domain/playback/playback_engine.dart';
 import '../domain/playback/playback_state.dart';
 import '../domain/subtitles/subtitle_cue.dart';
+import '../domain/playback/sentence_sequence.dart';
 import '../services/background_playback_service.dart';
 import '../services/recording_service.dart';
 import 'core_providers.dart';
@@ -366,15 +367,20 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
     required bool autoAdvance,
   }) async {
     _sentencePlaylist = playlist;
-    _sentenceIndex = playlist.indexWhere((item) => item.startMs == cue.startMs);
+    _sentenceIndex = playlist.indexWhere(
+      (item) => item.startMs == cue.startMs && item.endMs == cue.endMs,
+    );
     _autoAdvanceCurrent = autoAdvance && _sentenceIndex >= 0;
     final count = _settings.state.loopCount.clamp(1, 20).toInt();
-    final mode = _autoAdvanceCurrent ? LoopMode.count : LoopMode.infinite;
+    final mode =
+        _autoAdvanceCurrent || _settings.state.loopMode == LoopMode.count
+        ? LoopMode.count
+        : LoopMode.infinite;
     await _engine.setLoopRegion(
       cue.startMs,
       cue.endMs,
       mode: mode,
-      count: _autoAdvanceCurrent ? count : null,
+      count: mode == LoopMode.count ? count : null,
     );
     final id = _currentMediaId;
     if (id != null) {
@@ -383,7 +389,7 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
         startMs: cue.startMs,
         endMs: cue.endMs,
         mode: mode,
-        count: _autoAdvanceCurrent ? count : 1,
+        count: mode == LoopMode.count ? count : 1,
       );
     }
     await _engine.startLoop();
@@ -395,8 +401,12 @@ class PlaybackNotifier extends StateNotifier<PlaybackSnapshot> {
       _cancelSentenceAdvance();
       return;
     }
-    final nextIndex = _sentenceIndex + 1;
-    if (nextIndex >= _sentencePlaylist.length) {
+    final nextIndex = nextSentenceIndex(
+      _sentenceIndex,
+      _sentencePlaylist.length,
+      repeat: _settings.state.repeatSentenceList,
+    );
+    if (nextIndex == null) {
       _autoAdvanceCurrent = false;
       return;
     }

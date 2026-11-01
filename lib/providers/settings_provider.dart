@@ -107,6 +107,11 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await _persist();
   }
 
+  Future<void> setRepeatSentenceList(bool enabled) async {
+    state = state.copyWith(repeatSentenceList: enabled);
+    await _persist();
+  }
+
   Future<void> saveTranscriberApiKey(String value) async {
     await _channel.saveTranscriberApiKey(value.trim());
     state = state.copyWith(transcriberApiKeyConfigured: true);
